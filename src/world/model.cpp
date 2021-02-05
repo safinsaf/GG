@@ -114,7 +114,9 @@ void cg::world::model::load_obj(const std::filesystem::path& model_path)
 				}
 				else
 				{
-					// TODO: compute normals
+					vertex.nx = normal.x;
+					vertex.ny = normal.y;
+					vertex.nz = normal.z;
 				}
 				if (materials.size() > 0)
 				{
@@ -128,8 +130,8 @@ void cg::world::model::load_obj(const std::filesystem::path& model_path)
 					vertex.diffuse_b = material.diffuse[2];
 
 					vertex.emissive_r = material.emission[0];
-					vertex.emissive_r = material.emission[0];
-					vertex.emissive_r = material.emission[0];
+					vertex.emissive_g = material.emission[1];
+					vertex.emissive_b = material.emission[2];
 				}
 				vertex_buffer->item(vertex_buffer_id++) = vertex;
 				per_shape_buffer[s]->item(per_shape_id++) = vertex; 
