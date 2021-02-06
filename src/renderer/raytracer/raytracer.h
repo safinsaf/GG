@@ -116,7 +116,7 @@ public:
 	void set_per_shape_vertex_buffer(
 		std::vector<std::shared_ptr<cg::resource<VB>>> in_per_shape_vertex_buffer);
 	void build_acceleration_structure();
-	std::vector<triangle<VB>> acceleration_structures;
+	std::vector<aabb<VB>> acceleration_structures;
 
 	void ray_generation(float3 position, float3 direction, float3 right, float3 up);
 
@@ -168,15 +168,19 @@ inline void raytracer<VB, RT>::build_acceleration_structure()
 	for (auto& vertex_buffer : per_shape_vertex_buffer)
 	{
 		size_t vertex_id = 0;
+		aabb<VB> aabb;
 		while (vertex_id < vertex_buffer->get_number_of_elements())
 		{
 			triangle<VB> triangle(
 				vertex_buffer->item(vertex_id++), vertex_buffer->item(vertex_id++),
 				vertex_buffer->item(vertex_id++));
-			acceleration_structures.push_back(triangle);
+			aabb.add_triangle(triangle);
 		}
+		acceleration_structures.push_back(aabb);
 	}
 }
+
+
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::set_viewport(size_t in_width, size_t in_height)
@@ -200,12 +204,35 @@ inline void raytracer<VB, RT>::ray_generation(
 
 			u *= static_cast<float>(width) / static_cast<float>(height);
 
+			float u_delta = 1 / static_cast<float>(width - 1);
+			u_delta *= static_cast<float>(width) / static_cast<float>(height);
+			float v_delta = 1.f / static_cast<float>(height - 1);
+
+
 			float3 ray_direction = direction + u * right - v * up;
-			ray ray(position, ray_direction);
+			
+			ray ray_0(position, ray_direction);
+			payload payload_0 = trace_ray(ray_0, 1);
 
-			payload payload = trace_ray(ray, 1);
+			ray ray_1(position, ray_direction + u_delta * right);
+			payload payload_1 = trace_ray(ray_1, 1);
 
-			render_target->item(x, y) = RT::from_color(payload.color);
+			ray ray_2(position, ray_direction - v_delta * up);
+			payload payload_2 = trace_ray(ray_2, 1);
+
+			ray ray_3(position, ray_direction + u_delta * right - v_delta * up);
+			payload payload_3 = trace_ray(ray_3, 1);
+
+
+			cg::color accumed_color{
+				(payload_0.color.r + payload_1.color.r+ 
+				payload_2.color.r + payload_3.color.r)/4,
+				(payload_0.color.g + payload_1.color.g +
+				payload_2.color.g + payload_3.color.g)/4,
+				(payload_0.color.b + payload_1.color.b +
+				payload_2.color.b + payload_3.color.b)/4
+			};
+			render_target->item(x, y) = RT::from_color(accumed_color);
 		}
 	}	
 }
@@ -222,20 +249,27 @@ inline payload
 	closest_hit_payload.t = max_t;
 	const triangle<VB>* closest_triangle = nullptr;
 
-	for (auto &triangle : acceleration_structures)
+	for (auto& aabb : acceleration_structures)
 	{
-		payload payload = intersection_shader(triangle, ray);
-
-		if (payload.t > min_t && payload.t < closest_hit_payload.t)
+		if (aabb.aabb_test(ray))
 		{
-			closest_hit_payload = payload;
-			closest_triangle = &triangle;
 
-			if (any_hit_shader)
-				return any_hit_shader(ray, payload,triangle);
+
+			for (auto& triangle : aabb.get_traingles())
+			{
+				payload payload = intersection_shader(triangle, ray);
+
+				if (payload.t > min_t && payload.t < closest_hit_payload.t)
+				{
+					closest_hit_payload = payload;
+					closest_triangle = &triangle;
+
+					if (any_hit_shader)
+						return any_hit_shader(ray, payload, triangle);
+				}
+			}
 		}
 	}
-
 	if (closest_hit_payload.t < max_t)
 	{
 		if (closest_hit_shader)
@@ -288,7 +322,20 @@ inline float raytracer<VB, RT>::get_random(const int thread_num, const float ran
 template<typename VB>
 inline void aabb<VB>::add_triangle(const triangle<VB> triangle)
 {
-	THROW_ERROR("Not implemented yet");
+	if (triangles.empty())
+	{
+		aabb_max = aabb_min = triangle.a;
+	}
+
+	triangles.push_back(triangle);
+	aabb_max = max(triangle.a, aabb_max);
+	aabb_max = max(triangle.b, aabb_max);
+	aabb_max = max(triangle.c, aabb_max);
+
+	aabb_min = min(triangle.a, aabb_min);
+	aabb_min = min(triangle.b, aabb_min);
+	aabb_min = min(triangle.c, aabb_min);
+
 }
 
 template<typename VB>
@@ -300,7 +347,12 @@ inline const std::vector<triangle<VB>>& aabb<VB>::get_traingles() const
 template<typename VB>
 inline bool aabb<VB>::aabb_test(const ray& ray) const
 {
-	THROW_ERROR("Not implemented yet");
+	float3 inv_ray_direction = float3(1.f) / ray.direction;
+	float3 t0 = (aabb_max - ray.position) * inv_ray_direction;
+	float3 t1 = (aabb_min - ray.position) * inv_ray_direction;
+	float3 tmin = min(t0, t1);
+	float3 tmax = max(t0, t1);
+	return maxelem(tmin) <= minelem(tmax);
 	return false;
 }
 
